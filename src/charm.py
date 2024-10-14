@@ -40,7 +40,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.cis_harden()
 
     def cis_harden(self):
-        with tempfile.NamedTemporaryFile("w", delete_on_close=False) as fh:
+        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
             fh.write(base64.b64decode(self.model.config["tailoring-file"]).decode('utf-8'))
             fh.flush()
             return subprocess.check_output(f"usg fix --tailoring-file {fh.name}".split(" "))
