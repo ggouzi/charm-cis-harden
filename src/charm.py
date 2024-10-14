@@ -40,7 +40,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
         if self.model.config["auto-harden"]:
             self.cis_harden()
 
-    def on_audit_action(self, event):
+    def _on_audit_action(self, event):
         self.audit("/tmp/audit.results")
             
     def audit(self, results_file):
