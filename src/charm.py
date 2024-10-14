@@ -44,7 +44,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
         self.audit("/tmp/audit.results")
             
     def audit(self, results_file):
-        return subprocess.check_output(f"usg audit --tailoring-file {fh.name}".split(" ")).decode('utf-8')
+        return subprocess.check_output(f"usg audit --tailoring-file {results_file}".split(" ")).decode('utf-8')
 
     def cis_harden(self):
         with tempfile.NamedTemporaryFile("w", delete=False) as fh:
