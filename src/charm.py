@@ -13,7 +13,6 @@ https://juju.is/docs/sdk/create-a-minimal-kubernetes-charm
 """
 
 import logging
-from typing import cast
 import tempfile
 import base64
 import subprocess
@@ -48,8 +47,8 @@ class CharmCisHardeningCharm(ops.CharmBase):
     def _cis_harden_action(self, event):
         self.unit.status = ops.ActiveStatus("Executing hardening...")
         self.cis_harden()
-        event.set_results("Complete!")
-
+        event.set_results({"result": "Completed!"})
+        logger.debug("Hardening action completed")
 
 
 if __name__ == "__main__":  # pragma: nocover
