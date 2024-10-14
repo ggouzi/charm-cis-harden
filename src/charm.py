@@ -33,11 +33,18 @@ class CharmCisHardeningCharm(ops.CharmBase):
         # framework.observe(self.on.config_changed, self._on_config_changed)
         framework.observe(self.on.execute_cis_action, self._cis_harden_action)
         framework.observe(self.on.install, self._on_install)
+        framework.observe(self.on.execute_audit_action, self._on_audit_action)
 
     def _on_install(self, event):
         self.unit.status = ops.ActiveStatus("Ready to execute CIS hardening.")
         if self.model.config["auto-harden"]:
             self.cis_harden()
+
+    def on_audit_action(self, event):
+        self.audit("/tmp/audit.results")
+            
+    def audit(self, results_file):
+        return subprocess.check_output(f"usg audit --tailoring-file {fh.name}".split(" ")).decode('utf-8')
 
     def cis_harden(self):
         with tempfile.NamedTemporaryFile("w", delete=False) as fh:
