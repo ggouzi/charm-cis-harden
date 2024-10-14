@@ -43,13 +43,15 @@ class CharmCisHardeningCharm(ops.CharmBase):
         with tempfile.NamedTemporaryFile("w", delete=False) as fh:
             fh.write(base64.b64decode(self.model.config["tailoring-file"]).decode('utf-8'))
             fh.flush()
-            return subprocess.check_output(f"usg fix --tailoring-file {fh.name}".split(" "))
+            return subprocess.check_output(f"usg fix --tailoring-file {fh.name}".split(" ")).decode('utf-8')
 
     def _cis_harden_action(self, event):
         self.unit.status = ops.ActiveStatus("Executing hardening...")
-        self.cis_harden()
-        event.set_results("Complete!")
-
+        output = self.cis_harden()
+        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+            fh.write(output)
+            event.set_results({"Result": "Complete!", "Results file": fh.name})
+        self.unit.status = ops.ActiveStatus("Hardening complete.")
 
 
 if __name__ == "__main__":  # pragma: nocover
