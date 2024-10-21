@@ -42,7 +42,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
     def _on_audit_action(self, event):
         self.audit("/tmp/audit.results")
-            
+
     def audit(self, results_file):
         return subprocess.check_output(f"usg audit --tailoring-file {results_file}".split(" ")).decode('utf-8')
 
@@ -53,7 +53,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             return subprocess.check_output(f"usg fix --tailoring-file {fh.name}".split(" ")).decode('utf-8')
 
     def _cis_harden_action(self, event):
-        self.unit.status = ops.ActiveStatus("Executing hardening...")
+        self.unit.status = ops.MaintenanceStatus("Executing hardening...")
         output = self.cis_harden()
         with tempfile.NamedTemporaryFile("w", delete=False) as fh:
             fh.write(output)
