@@ -25,18 +25,10 @@ description: |
   A charm to enable per-application CIS hardening
 
 
-# (Required for 'charm' type)
-# A list of environments (OS version and architecture) where charms must be
-# built on and run on.
-bases:
-  - build-on:
-    - name: ubuntu
-      channel: "22.04"
-    run-on:
-    - name: ubuntu
-      channel: "22.04"
-    - name: ubuntu
-      channel: "24.04"
+base: ubuntu@22.04
+build-base: ubuntu@22.04
+platforms:
+  amd64:
 
 requires:
   juju-info:
