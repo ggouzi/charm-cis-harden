@@ -1,13 +1,3 @@
-<!--
-Avoid using this README file for information that is maintained or published elsewhere, e.g.:
-
-* metadata.yaml > published on Charmhub
-* documentation > published on (or linked to from) Charmhub
-* detailed contribution guide > documentation or CONTRIBUTING.md
-
-Use links instead.
--->
-
 # charm-cis-hardening
 
 Charmhub package name: operator-template
@@ -15,12 +5,22 @@ More information: https://charmhub.io/charm-cis-hardening
 
 Describe your charm in one or two sentences.
 
+## Usage
+```
+# Using Keystone as an example
+juju deploy keystone
+juju config charm-cis-hardening pre-hardening-script=@test.sh
+juju config charm-cis-hardening tailoring-file="$(base64 tailoring.xml)"
+juju relate charm-cis-hardening keystone
+juju run charm-cis-hardening/0 -- execute-cis
+```
+
+Squeleton for `tailoring.xml` can be generated using `sudo usg generate-tailoring cis_level2_server tailoring.xml`. Adjust it by enabling/disabling specific rules to match the current unit you wish to harden
+
 ## Other resources
 
-<!-- If your charm is documented somewhere else other than Charmhub, provide a link separately. -->
+- [Charm](https://charmhub.io/charm-cis-hardening)
 
-- [Read more](https://example.com)
-
-- [Contributing](CONTRIBUTING.md) <!-- or link to other contribution documentation -->
+- [Contributing](CONTRIBUTING.md)
 
 - See the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms.
