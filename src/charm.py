@@ -54,7 +54,6 @@ class CharmCisHardeningCharm(ops.CharmBase):
         pkg = USG_PACKAGE
         self.unit.status = ops.MaintenanceStatus(f"Installing {pkg}")
         fetch.apt_install([pkg], fatal=True)
-        self.unit.status = ops.ActiveStatus("Ready to execute CIS hardening")
 
     def cis_harden(self):
         with tempfile.NamedTemporaryFile("w", delete=False) as fh:
