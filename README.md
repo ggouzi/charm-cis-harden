@@ -12,7 +12,7 @@ juju deploy keystone
 juju config charm-cis-hardening pre-hardening-script=@test.sh
 juju config charm-cis-hardening tailoring-file="$(base64 tailoring.xml)"
 juju relate charm-cis-hardening keystone
-juju run charm-cis-hardening/0 -- execute-cis
+juju run --wait=2m charm-cis-hardening/0 -- execute-cis
 ```
 
 Squeleton for `tailoring.xml` can be generated using `sudo usg generate-tailoring cis_level2_server tailoring.xml`. Adjust it by enabling/disabling specific rules to match the current unit you wish to harden
