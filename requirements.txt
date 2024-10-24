@@ -1,1 +1,2 @@
 ops ~= 2.5
+charmhelpers ~= 1.2
