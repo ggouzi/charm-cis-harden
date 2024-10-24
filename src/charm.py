@@ -29,18 +29,29 @@ USG_PACKAGE = "usg"
 class CharmCisHardeningCharm(ops.CharmBase):
     """Charm the service."""
 
+    _stored = ops.framework.StoredState()
+
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
+        self._stored.set_default(hardening_status=False)
+
         # framework.observe(self.on.config_changed, self._on_config_changed)
         framework.observe(self.on.execute_cis_action, self._cis_harden_action)
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.execute_audit_action, self._on_audit_action)
+        framework.observe(self.on.start, self._on_start)
 
     def _on_install(self, event):
         self.install_usg()
         self.unit.status = ops.ActiveStatus("Ready to execute CIS hardening.")
         if self.model.config["auto-harden"]:
             self.cis_harden()
+
+    def _on_start(self, event):
+        if self._stored.hardening_status:
+            self.unit.status = ops.ActiveStatus("Unit is hardened. Nothing to do. Run execute-audit action to fetch results")
+        else:
+            self.unit.status = ops.BlockedStatus("Ready to execute CIS hardening. Check juju actions")
 
     def _on_audit_action(self, event):
         self.audit("/tmp/audit.results")
@@ -56,7 +67,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
         fetch.apt_install([pkg], fatal=True)
 
     def cis_harden(self):
-        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as fh:
             fh.write(base64.b64decode(self.model.config["tailoring-file"]).decode("utf-8"))
             fh.flush()
             return subprocess.check_output(
@@ -65,11 +76,17 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
     def _cis_harden_action(self, event):
         self.unit.status = ops.MaintenanceStatus("Executing hardening...")
-        output = self.cis_harden()
-        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
-            fh.write(output)
-            event.set_results({"Result": "Complete!", "Results file": fh.name})
-        self.unit.status = ops.ActiveStatus("Hardening complete.")
+        self._stored.hardening_status = False
+        try:
+            output = self.cis_harden()
+            with tempfile.NamedTemporaryFile(mode="w", delete=False) as fh:
+                fh.write(output)
+                event.set_results({"result": "Complete! Please reboot the unit", "file": fh.name})
+            self._stored.hardening_status = True
+            self.unit.status = ops.BlockedStatus("Hardening complete. Please reboot the unit")
+        except Exception as e:
+            self.unit.status = ops.BlockedStatus("Hardening failed. Please check juju debug-log")
+            logger.error(str(e))
 
 
 if __name__ == "__main__":  # pragma: nocover
