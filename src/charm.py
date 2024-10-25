@@ -71,7 +71,6 @@ class CharmCisHardeningCharm(ops.CharmBase):
             })
         except Exception as e:
             logger.error(f"Audit failed: {str(e)}")
-            event.fail(f"Audit failed: {str(e)}")
 
     def audit(self, results_file):
         try:
@@ -125,7 +124,6 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
         except Exception as e:
             logger.error(f"Hardening action failed: {str(e)}")
-            event.fail(f"Hardening failed: {str(e)}")
             self.unit.status = ops.BlockedStatus("Hardening failed. Check juju debug-log")
 
 
