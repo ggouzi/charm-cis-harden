@@ -53,6 +53,10 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus(f"Install failed: {str(e)}")
 
     def _on_start(self, event):
+        # Workaround needed https://chat.canonical.com/canonical/pl/rr9su5ceh3r98r5jbiuu6989wr
+        subprocess.check_output(
+            "sysctl --system".split(" ")
+        ).decode("utf-8")
         if self._stored.hardening_status:
             self.unit.status = ops.ActiveStatus("Unit is hardened. Use 'execute-audit' action to check compliance")
         else:
