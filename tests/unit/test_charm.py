@@ -1,68 +1,197 @@
+#!/usr/bin/env python3
 # Copyright 2024 pjds
 # See LICENSE file for licensing details.
-#
-# Learn more about testing at: https://juju.is/docs/sdk/testing
 
 import unittest
+from unittest.mock import patch, MagicMock
+import subprocess
+import base64
 
 import ops
 import ops.testing
 from charm import CharmCisHardeningCharm
 
 
-class TestCharm(unittest.TestCase):
+class TestCharmCisHardening(unittest.TestCase):
     def setUp(self):
         self.harness = ops.testing.Harness(CharmCisHardeningCharm)
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
+        # Sample base64 encoded content for testing
+        self.test_tailoring = base64.b64encode(b"test content").decode('utf-8')
 
-    def test_httpbin_pebble_ready(self):
-        # Expected plan after Pebble ready with default config
-        expected_plan = {
-            "services": {
-                "httpbin": {
-                    "override": "replace",
-                    "summary": "httpbin",
-                    "command": "gunicorn -b 0.0.0.0:80 httpbin:app -k gevent",
-                    "startup": "enabled",
-                    "environment": {"GUNICORN_CMD_ARGS": "--log-level info"},
-                }
-            },
-        }
-        # Simulate the container coming up and emission of pebble-ready event
-        self.harness.container_pebble_ready("httpbin")
-        # Get the plan now we've run PebbleReady
-        updated_plan = self.harness.get_container_pebble_plan("httpbin").to_dict()
-        # Check we've got the plan we expected
-        self.assertEqual(expected_plan, updated_plan)
-        # Check the service was started
-        service = self.harness.model.unit.get_container("httpbin").get_service("httpbin")
-        self.assertTrue(service.is_running())
-        # Ensure we set an ActiveStatus with no message
-        self.assertEqual(self.harness.model.unit.status, ops.ActiveStatus())
+    def test_is_configuration_set(self):
+        """Test configuration validation."""
+        # Test empty config
+        self.assertFalse(self.harness.charm.is_configuration_set("tailoring-file"))
 
-    def test_config_changed_valid_can_connect(self):
-        # Ensure the simulated Pebble API is reachable
-        self.harness.set_can_connect("httpbin", True)
-        # Trigger a config-changed event with an updated value
-        self.harness.update_config({"log-level": "debug"})
-        # Get the plan now we've run PebbleReady
-        updated_plan = self.harness.get_container_pebble_plan("httpbin").to_dict()
-        updated_env = updated_plan["services"]["httpbin"]["environment"]
-        # Check the config change was effective
-        self.assertEqual(updated_env, {"GUNICORN_CMD_ARGS": "--log-level debug"})
-        self.assertEqual(self.harness.model.unit.status, ops.ActiveStatus())
+        # Test with whitespace
+        self.harness.update_config({"tailoring-file": "   "})
+        self.assertFalse(self.harness.charm.is_configuration_set("tailoring-file"))
 
-    def test_config_changed_valid_cannot_connect(self):
-        # Trigger a config-changed event with an updated value
-        self.harness.update_config({"log-level": "debug"})
-        # Check the charm is in WaitingStatus
-        self.assertIsInstance(self.harness.model.unit.status, ops.WaitingStatus)
+        # Test with valid content
+        self.harness.update_config({"tailoring-file": self.test_tailoring})
+        self.assertTrue(self.harness.charm.is_configuration_set("tailoring-file"))
 
-    def test_config_changed_invalid(self):
-        # Ensure the simulated Pebble API is reachable
-        self.harness.set_can_connect("httpbin", True)
-        # Trigger a config-changed event with an updated value
-        self.harness.update_config({"log-level": "foobar"})
-        # Check the charm is in BlockedStatus
+    @patch('charmhelpers.fetch.apt_update')
+    @patch('charmhelpers.fetch.apt_install')
+    def test_install_default(self, mock_apt_install, mock_apt_update):
+        """Test default installation without auto-hardening."""
+        self.harness.update_config({
+            "auto-harden": False,
+            "tailoring-file": self.test_tailoring
+        })
+
+        self.harness.charm.on.install.emit()
+
+        mock_apt_update.assert_called_once()
+        mock_apt_install.assert_called_once_with(['usg'], fatal=True)
         self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertEqual(
+            self.harness.model.unit.status.message,
+            "Ready for CIS hardening. Run 'execute-cis' action"
+        )
+
+    @patch('subprocess.check_output')
+    @patch('charmhelpers.fetch.apt_install')
+    @patch('charmhelpers.fetch.apt_update')
+    def test_install_with_auto_harden(self, mock_apt_update, mock_apt_install, mock_check_output):
+        """Test installation with auto-hardening enabled."""
+        self.harness.update_config({
+            "auto-harden": True,
+            "tailoring-file": self.test_tailoring
+        })
+        mock_check_output.return_value = ""
+
+        self.harness.charm.on.install.emit()
+
+        mock_apt_update.assert_called_once()
+        mock_apt_install.assert_called_once_with(['usg'], fatal=True)
+        self.assertTrue(mock_check_output.call_args[0][0][0:2] == ['usg', 'fix'])
+
+    @patch('subprocess.check_output')
+    def test_execute_cis_action_success(self, mock_check_output):
+        """Test successful CIS hardening action."""
+        self.harness.update_config({
+            "tailoring-file": self.test_tailoring
+        })
+        mock_check_output.return_value = ""
+
+        action_event = MagicMock()
+        self.harness.charm._cis_harden_action(action_event)
+
+        mock_check_output.assert_called()
+        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertTrue("Hardening complete" in str(self.harness.model.unit.status))
+        self.assertTrue(self.harness.charm._stored.hardening_status)
+        action_event.set_results.assert_called()
+
+    def test_execute_cis_action_no_config(self):
+        """Test CIS hardening action without tailoring file."""
+        action_event = MagicMock()
+        self.harness.charm._cis_harden_action(action_event)
+
+        action_event.fail.assert_called_with("Tailoring-file is not set")
+        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertEqual(
+            self.harness.model.unit.status.message,
+            "Cannot run hardening. Please configure a tailoring-file"
+        )
+
+    @patch('subprocess.check_output')
+    def test_execute_audit_action_success(self, mock_check_output):
+        """Test successful audit action."""
+        self.harness.update_config({
+            "tailoring-file": self.test_tailoring
+        })
+        mock_check_output.return_value = "Audit output"
+
+        action_event = MagicMock()
+        self.harness.charm._on_audit_action(action_event)
+
+        mock_check_output.assert_called()
+        self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
+        self.assertTrue("Audit finished" in str(self.harness.model.unit.status))
+        action_event.set_results.assert_called()
+
+    def test_execute_audit_action_no_config(self):
+        """Test audit action without tailoring file."""
+        action_event = MagicMock()
+        self.harness.charm._on_audit_action(action_event)
+
+        action_event.fail.assert_called_with("Tailoring-file is not set")
+        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertEqual(
+            self.harness.model.unit.status.message,
+            "Cannot run hardening. Please configure a tailoring-file"
+        )
+
+    @patch('subprocess.run')
+    def test_execute_pre_hardening_script_success(self, mock_run):
+        """Test successful pre-hardening script execution."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Success",
+            stderr=""
+        )
+
+        self.harness.update_config({
+            "pre-hardening-script": "echo 'test'"
+        })
+
+        result = self.harness.charm.execute_pre_hardening_script()
+        self.assertEqual(result, 0)
+        mock_run.assert_called_once()
+
+    @patch('subprocess.run')
+    def test_execute_pre_hardening_script_failure(self, mock_run):
+        """Test failed pre-hardening script execution."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Error"
+        )
+
+        self.harness.update_config({
+            "pre-hardening-script": "invalid_command"
+        })
+
+        result = self.harness.charm.execute_pre_hardening_script()
+        self.assertEqual(result, 1)
+        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertTrue("Pre-hardening script failed" in str(self.harness.model.unit.status))
+
+    @patch('subprocess.check_output')
+    def test_start_hardened(self, mock_check_output):
+        """Test start hook when unit is hardened."""
+        mock_check_output.return_value = b"sysctl output"
+        self.harness.charm._stored.hardening_status = True
+        self.harness.charm.on.start.emit()
+
+        mock_check_output.assert_called_once_with("sysctl --system".split(" "))
+        self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
+        self.assertEqual(
+            self.harness.model.unit.status.message,
+            "Unit is hardened. Use 'execute-audit' action to check compliance"
+        )
+
+    @patch('subprocess.check_output')
+    def test_start_not_hardened(self, mock_check_output):
+        """Test start hook when unit is not hardened."""
+        mock_check_output.return_value = b"sysctl output"
+        self.harness.update_config({
+            "tailoring-file": self.test_tailoring
+        })
+        self.harness.charm._stored.hardening_status = False
+        self.harness.charm.on.start.emit()
+
+        mock_check_output.assert_called_once_with("sysctl --system".split(" "))
+        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertEqual(
+            self.harness.model.unit.status.message,
+            "Ready for CIS hardening. Run 'execute-cis' action"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()
