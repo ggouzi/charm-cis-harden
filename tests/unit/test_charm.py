@@ -46,7 +46,7 @@ class TestCharmCisHardening(unittest.TestCase):
 
         mock_apt_update.assert_called_once()
         mock_apt_install.assert_called_once_with(['usg'], fatal=True)
-        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
         self.assertEqual(
             self.harness.model.unit.status.message,
             "Ready for CIS hardening. Run 'execute-cis' action"
@@ -186,7 +186,7 @@ class TestCharmCisHardening(unittest.TestCase):
         self.harness.charm.on.start.emit()
 
         mock_check_output.assert_called_once_with("sysctl --system".split(" "))
-        self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
+        self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
         self.assertEqual(
             self.harness.model.unit.status.message,
             "Ready for CIS hardening. Run 'execute-cis' action"

@@ -44,7 +44,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
         try:
             self.unit.status = ops.MaintenanceStatus("Installing dependencies...")
             self.install_usg()
-            self.unit.status = ops.BlockedStatus("Ready for CIS hardening. Run 'execute-cis' action")
+            self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'execute-cis' action")
 
             if self.model.config["auto-harden"]:
                 self.unit.status = ops.MaintenanceStatus("Auto-hardening enabled, starting hardening...")
@@ -61,7 +61,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             logger.error("Tailoring-file is not set")
             self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
         else:
-            self.unit.status = ops.BlockedStatus("Ready for CIS hardening. Run 'execute-cis' action")
+            self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'execute-cis' action")
 
     def _on_start(self, event):
         # Workaround needed https://chat.canonical.com/canonical/pl/rr9su5ceh3r98r5jbiuu6989wr
