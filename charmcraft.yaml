@@ -8,8 +8,8 @@ summary: A charm to perform CIS hardening with usg on the machine it runs on.
 description: |
   A charm to enable per-application CIS hardening
 links:
-  contact: https://launchpad.net/~pjds
-  documentation: https://discourse.charmhub.io/t/keystone-k8s-auth/14554
+  contact: https://launchpad.net/~fe-team
+  documentation: https://charmhub.io/charm-cis-hardening
   issues:
   - https://github.com/VariableDeclared/charm-cis-harden/issues
   source:
@@ -51,6 +51,11 @@ config:
     tailoring-file:
       description: |
         The XML file in base64 to apply to the application.
+      type: string
+      default: ""
+    pre-hardening-script:
+      description: |
+        A Bash script to execute before the hardening
       type: string
       default: ""
 
