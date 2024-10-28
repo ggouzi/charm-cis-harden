@@ -64,7 +64,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'execute-cis' action")
 
     def _on_start(self, event):
-        # Workaround needed https://chat.canonical.com/canonical/pl/rr9su5ceh3r98r5jbiuu6989wr
+        # Workaround needed to make sure all sysctl settings are correctly loaded
         subprocess.check_output(
             "sysctl --system".split(" ")
         ).decode("utf-8")
