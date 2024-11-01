@@ -199,7 +199,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
                 "file": filename
             })
             self.unit.status = ops.BlockedStatus(
-                f"Hardening complete. Results in {filename}. Please reboot the unit"
+                "Hardening complete. Please reboot the unit"
             )
             self._stored.hardening_status = True
 
