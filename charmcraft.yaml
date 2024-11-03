@@ -60,7 +60,9 @@ config:
       default: ""
 
 actions:
-  execute-cis:
+  harden:
     description: Start the CIS benchmark.
-  execute-audit:
+  audit:
     description: Run audit with the tailoring file
+  get-status:
+    description: Get the latest status on the audit/hardening of the unit

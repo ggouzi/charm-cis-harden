@@ -14,7 +14,9 @@ import tempfile
 import base64
 import subprocess
 import ops
+from xml.dom import minidom
 import charmhelpers.fetch as fetch
+from datetime import datetime
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -32,19 +34,77 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
-        self._stored.set_default(hardening_status=False)
+        self._stored.set_default(
+            hardening_status=False,
+            last_hardening_timestamp=None,
+            last_audit_timestamp=None,
+            last_audit_files=[],
+            last_audit_result=None
+        )
 
+        # Hooks
         framework.observe(self.on.config_changed, self._on_config_changed)
-        framework.observe(self.on.execute_cis_action, self._cis_harden_action)
         framework.observe(self.on.install, self._on_install)
-        framework.observe(self.on.execute_audit_action, self._on_audit_action)
         framework.observe(self.on.start, self._on_start)
+
+        # Actions
+        framework.observe(self.on.audit_action, self._on_audit_action)
+        framework.observe(self.on.harden_action, self._on_hardening_action)
+        framework.observe(self.on.get_status_action, self._on_get_status_action)
+
+    def install_usg(self):
+        try:
+            fetch.apt_update()
+            fetch.apt_install([USG_PACKAGE], fatal=True)
+        except Exception as e:
+            logger.error(f"Failed to install {USG_PACKAGE}: {str(e)}")
+            raise
+
+    def is_configuration_set(self, config_key):
+        config = self.model.config
+        tailoring_file = config.get(config_key, "")
+        if not tailoring_file.strip():
+            return False
+        return True
+
+    def check_state(self):
+        if self._stored.hardening_status:
+            self.unit.status = ops.ActiveStatus("Unit is hardened. Use 'audit' action to check compliance")
+            return
+        if not self.is_configuration_set("tailoring-file"):
+            logger.error("Tailoring-file is not set")
+            self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
+        else:
+            self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'harden' action")
+
+    def parse_audit_results(self, filename):
+        """
+        Parses XML result file to get the percentage of passed rules
+        """
+        try:
+            with open(filename, 'r') as file:
+                xml_content = file.read()
+
+            # Parse the XML content to get the total score of the audit (e.g 99%)
+            doc = minidom.parseString(xml_content)
+            score_elements = doc.getElementsByTagName('score')
+
+            if score_elements:
+                return score_elements[0].firstChild.nodeValue
+            return "" # Return empty string to prevent issue in parent function
+        except Exception as e:
+            logger.error(f"XML parsing failed: {str(e)}")
+            return "" # Return empty string to prevent issue in parent function
+        finally:
+            # Clean up to prevent memory leaks
+            if 'doc' in locals():
+                doc.unlink()
 
     def _on_install(self, event):
         try:
             self.unit.status = ops.MaintenanceStatus("Installing dependencies...")
             self.install_usg()
-            self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'execute-cis' action")
+            self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'harden' action")
 
             if self.model.config["auto-harden"]:
                 self.unit.status = ops.MaintenanceStatus("Auto-hardening enabled, starting hardening...")
@@ -52,16 +112,6 @@ class CharmCisHardeningCharm(ops.CharmBase):
         except Exception as e:
             logger.error(f"Installation failed: {str(e)}")
             self.unit.status = ops.BlockedStatus(f"Install failed: {str(e)}")
-
-    def check_state(self):
-        if self._stored.hardening_status:
-            self.unit.status = ops.ActiveStatus("Unit is hardened. Use 'execute-audit' action to check compliance")
-            return
-        if not self.is_configuration_set("tailoring-file"):
-            logger.error("Tailoring-file is not set")
-            self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
-        else:
-            self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'execute-cis' action")
 
     def _on_start(self, event):
         # Workaround needed to make sure all sysctl settings are correctly loaded
@@ -79,6 +129,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             event.fail("Tailoring-file is not set")
             self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
             return
+
         try:
             self.unit.status = ops.MaintenanceStatus("Executing audit...")
             output = self.audit(xml_results_file=AUDIT_XML_RESULTS_PATH, html_results_file=AUDIT_HTML_RESULTS_PATH)
@@ -89,6 +140,13 @@ class CharmCisHardeningCharm(ops.CharmBase):
                 "html-file": AUDIT_HTML_RESULTS_PATH,
             }
             event.set_results(results)
+            last_audit_result = f"{self.parse_audit_results(AUDIT_XML_RESULTS_PATH)}%"
+
+            # Update stored audit information
+            self._stored.last_audit_timestamp = datetime.now().isoformat()
+            self._stored.last_audit_files = [AUDIT_XML_RESULTS_PATH, AUDIT_HTML_RESULTS_PATH]
+            self._stored.last_audit_result = last_audit_result
+
             logger.debug(f"Audit finished. Results {results}")
             self.unit.status = ops.ActiveStatus(f"Audit finished. Result file: {AUDIT_HTML_RESULTS_PATH}")
         except Exception as e:
@@ -108,21 +166,6 @@ class CharmCisHardeningCharm(ops.CharmBase):
         except Exception as e:
             logger.error(f"Audit failed: {str(e)}")
             raise
-
-    def install_usg(self):
-        try:
-            fetch.apt_update()
-            fetch.apt_install([USG_PACKAGE], fatal=True)
-        except Exception as e:
-            logger.error(f"Failed to install {USG_PACKAGE}: {str(e)}")
-            raise
-
-    def is_configuration_set(self, config_key):
-        config = self.model.config
-        tailoring_file = config.get(config_key, "")
-        if not tailoring_file.strip():
-            return False
-        return True
 
     def execute_pre_hardening_script(self):
         """
@@ -171,15 +214,16 @@ class CharmCisHardeningCharm(ops.CharmBase):
             logger.error(f"Hardening failed: {str(e)}")
             raise
 
-    def _cis_harden_action(self, event):
+    def _on_hardening_action(self, event):
         if not self.is_configuration_set("tailoring-file"):
             logger.error("Tailoring-file is not set")
             event.fail("Tailoring-file is not set")
             self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
             return
+
         return_code = self.execute_pre_hardening_script()
         if return_code:
-            event.fail("Failed to run pre-hardening logs. Check juju debug-log")
+            event.fail("Failed to run pre-hardening script. Check juju debug-log")
             return
 
         self.unit.status = ops.MaintenanceStatus("Executing hardening...")
@@ -203,10 +247,34 @@ class CharmCisHardeningCharm(ops.CharmBase):
             )
             self._stored.hardening_status = True
 
+            # Update stored audit information
+            self._stored.last_hardening_timestamp = datetime.now().isoformat()
+
         except Exception as e:
             logger.error(f"Hardening action failed: {str(e)}")
             event.fail("Hardening failed. Check juju debug-log")
             self.unit.status = ops.BlockedStatus("Hardening failed. Check juju debug-log")
+
+    def _on_get_status_action(self, event):
+        self.unit.status = ops.MaintenanceStatus("Fetching results...")
+
+        try:
+            output = {
+                "hardened": self._stored.hardening_status,
+                "last_audit": self._stored.last_audit_timestamp,
+                "last_hardening": self._stored.last_hardening_timestamp,
+                "last_audit_result": self._stored.last_audit_result,
+                "last_audit_files": self._stored.last_audit_files
+            }
+            event.set_results({
+                "result": output
+            })
+            self.check_state()
+
+        except Exception as e:
+            logger.error(f"Get status action failed: {str(e)}")
+            event.fail("Get status failed. Check juju debug-log")
+            self.unit.status = ops.BlockedStatus("Get status failed. Check juju debug-log")
 
 
 if __name__ == "__main__":
