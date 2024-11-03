@@ -36,6 +36,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
         super().__init__(framework)
         self._stored.set_default(
             hardening_status=False,
+            audit_status=False,
             last_hardening_timestamp=None,
             last_audit_timestamp=None,
             last_audit_files=[],
@@ -69,7 +70,10 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
     def check_state(self):
         if self._stored.hardening_status:
-            self.unit.status = ops.ActiveStatus("Unit is hardened. Use 'audit' action to check compliance")
+            if self._stored.audit_status:
+                self.unit.status = ops.ActiveStatus(f"Audit finished. Result file: {AUDIT_HTML_RESULTS_PATH}")
+            else:
+                self.unit.status = ops.ActiveStatus("Unit is hardened. Use 'audit' action to check compliance")
             return
         if not self.is_configuration_set("tailoring-file"):
             logger.error("Tailoring-file is not set")
@@ -80,6 +84,9 @@ class CharmCisHardeningCharm(ops.CharmBase):
     def parse_audit_results(self, filename):
         """
         Parses XML result file to get the percentage of passed rules
+        Returns only the value of the score tag
+        This is a nice-to-have and should not block the action.
+        Thus Returns None if any error is raised. Clean memory to avoid leaks
         """
         try:
             with open(filename, 'r') as file:
@@ -91,10 +98,10 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
             if score_elements:
                 return score_elements[0].firstChild.nodeValue
-            return "" # Return empty string to prevent issue in parent function
+            return None
         except Exception as e:
             logger.error(f"XML parsing failed: {str(e)}")
-            return "" # Return empty string to prevent issue in parent function
+            return None
         finally:
             # Clean up to prevent memory leaks
             if 'doc' in locals():
@@ -130,6 +137,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
             return
 
+        self._stored.audit_status = False
         try:
             self.unit.status = ops.MaintenanceStatus("Executing audit...")
             output = self.audit(xml_results_file=AUDIT_XML_RESULTS_PATH, html_results_file=AUDIT_HTML_RESULTS_PATH)
@@ -143,6 +151,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             last_audit_result = f"{self.parse_audit_results(AUDIT_XML_RESULTS_PATH)}%"
 
             # Update stored audit information
+            self._stored.audit_status = True
             self._stored.last_audit_timestamp = datetime.now().isoformat()
             self._stored.last_audit_files = [AUDIT_XML_RESULTS_PATH, AUDIT_HTML_RESULTS_PATH]
             self._stored.last_audit_result = last_audit_result
@@ -228,6 +237,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
         self.unit.status = ops.MaintenanceStatus("Executing hardening...")
         self._stored.hardening_status = False
+        self._stored.audit_status = False
 
         try:
             output = self.cis_harden()
@@ -261,10 +271,11 @@ class CharmCisHardeningCharm(ops.CharmBase):
         try:
             output = {
                 "hardened": self._stored.hardening_status,
-                "last_audit": self._stored.last_audit_timestamp,
-                "last_hardening": self._stored.last_hardening_timestamp,
-                "last_audit_result": self._stored.last_audit_result,
-                "last_audit_files": self._stored.last_audit_files
+                "last-harden-time": self._stored.last_hardening_timestamp,
+                'audited': self._stored.audit_status,
+                "last-audit-time": self._stored.last_audit_timestamp,
+                "last-audit-result": self._stored.last_audit_result,
+                "last-audit-files": self._stored.last_audit_files,
             }
             event.set_results({
                 "result": output

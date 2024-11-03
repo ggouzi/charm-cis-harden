@@ -203,10 +203,11 @@ class TestCharmCisHardening(unittest.TestCase):
         expected_initial_results = {
             "result": {
                 "hardened": False,
-                "last_audit": None,
-                "last_hardening": None,
-                "last_audit_result": None,
-                "last_audit_files": []
+                "last-harden-time": None,
+                "audited": False,
+                "last-audit-time": None,
+                "last-audit-result": None,
+                "last-audit-files": []
             }
         }
         action_event.set_results.assert_called_with(expected_initial_results)
@@ -216,6 +217,7 @@ class TestCharmCisHardening(unittest.TestCase):
         test_audit_result = "99%"
 
         self.harness.charm._stored.hardening_status = True
+        self.harness.charm._stored.audit_status = True
         self.harness.charm._stored.last_hardening_timestamp = test_time
         self.harness.charm._stored.last_audit_timestamp = test_time
         self.harness.charm._stored.last_audit_files = test_audit_files
@@ -230,23 +232,25 @@ class TestCharmCisHardening(unittest.TestCase):
         expected_results = {
             "result": {
                 "hardened": True,
-                "last_audit": test_time,
-                "last_hardening": test_time,
-                "last_audit_result": test_audit_result,
-                "last_audit_files": test_audit_files
+                "last-harden-time": test_time,
+                "audited": True,
+                "last-audit-time": test_time,
+                "last-audit-result": test_audit_result,
+                "last-audit-files": test_audit_files
             }
         }
         results = action_event.set_results.call_args[0][0]["result"]
         self.assertTrue(results["hardened"])
-        self.assertIsNotNone(results["last_audit"])
-        self.assertIsNotNone(results["last_hardening"])
-        # self.assertIsNotNone(results["last_audit_result"])
-        self.assertTrue(len(results["last_audit_files"]) > 0)
+        self.assertIsNotNone(results["last-harden-time"])
+        self.assertTrue(results["audited"])
+        self.assertIsNotNone(results["last-audit-time"])
+        # self.assertIsNotNone(results["last-audit-result"])
+        self.assertTrue(len(results["last-audit-files"]) > 0)
 
         self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
         self.assertEqual(
             self.harness.model.unit.status.message,
-            "Unit is hardened. Use 'audit' action to check compliance"
+            "Audit finished. Result file: /tmp/audit.results.html"
         )
 
 
