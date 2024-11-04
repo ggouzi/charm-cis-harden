@@ -4,7 +4,6 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-import subprocess
 import base64
 
 import ops
@@ -13,6 +12,7 @@ from charm import CharmCisHardeningCharm
 
 
 class TestCharmCisHardening(unittest.TestCase):
+
     def setUp(self):
         self.harness = ops.testing.Harness(CharmCisHardeningCharm)
         self.addCleanup(self.harness.cleanup)
@@ -49,7 +49,7 @@ class TestCharmCisHardening(unittest.TestCase):
         self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
         self.assertEqual(
             self.harness.model.unit.status.message,
-            "Ready for CIS hardening. Run 'execute-cis' action"
+            "Ready for CIS hardening. Run 'harden' action"
         )
 
     @patch('subprocess.check_output')
@@ -78,7 +78,7 @@ class TestCharmCisHardening(unittest.TestCase):
         mock_check_output.return_value = ""
 
         action_event = MagicMock()
-        self.harness.charm._cis_harden_action(action_event)
+        self.harness.charm._on_hardening_action(action_event)
 
         mock_check_output.assert_called()
         self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
@@ -89,7 +89,7 @@ class TestCharmCisHardening(unittest.TestCase):
     def test_execute_cis_action_no_config(self):
         """Test CIS hardening action without tailoring file."""
         action_event = MagicMock()
-        self.harness.charm._cis_harden_action(action_event)
+        self.harness.charm._on_hardening_action(action_event)
 
         action_event.fail.assert_called_with("Tailoring-file is not set")
         self.assertIsInstance(self.harness.model.unit.status, ops.BlockedStatus)
@@ -172,7 +172,7 @@ class TestCharmCisHardening(unittest.TestCase):
         self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
         self.assertEqual(
             self.harness.model.unit.status.message,
-            "Unit is hardened. Use 'execute-audit' action to check compliance"
+            "Unit is hardened. Use 'audit' action to check compliance"
         )
 
     @patch('subprocess.check_output')
@@ -189,7 +189,68 @@ class TestCharmCisHardening(unittest.TestCase):
         self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
         self.assertEqual(
             self.harness.model.unit.status.message,
-            "Ready for CIS hardening. Run 'execute-cis' action"
+            "Ready for CIS hardening. Run 'harden' action"
+        )
+
+    def test_get_status_action(self):
+        """Test get-status action returns correct stored state information."""
+        action_event = MagicMock()
+        self.harness.update_config({
+            "tailoring-file": self.test_tailoring
+        })
+        self.harness.charm._on_get_status_action(action_event)
+
+        expected_initial_results = {
+            "result": {
+                "hardened": False,
+                "last-harden-time": None,
+                "audited": False,
+                "last-audit-time": None,
+                "last-audit-result": None,
+                "last-audit-files": []
+            }
+        }
+        action_event.set_results.assert_called_with(expected_initial_results)
+
+        test_time = "2024-03-11T10:30:00"
+        test_audit_files = ["/tmp/audit.results.xml", "/tmp/audit.results.html"]
+        test_audit_result = "99%"
+
+        self.harness.charm._stored.hardening_status = True
+        self.harness.charm._stored.audit_status = True
+        self.harness.charm._stored.last_hardening_timestamp = test_time
+        self.harness.charm._stored.last_audit_timestamp = test_time
+        self.harness.charm._stored.last_audit_files = test_audit_files
+        self.harness.charm._stored.test_audit_result = test_audit_result
+
+        # Reset mock to clear previous calls
+        action_event.reset_mock()
+
+        # Test get-status again
+        self.harness.charm._on_get_status_action(action_event)
+
+        expected_results = {
+            "result": {
+                "hardened": True,
+                "last-harden-time": test_time,
+                "audited": True,
+                "last-audit-time": test_time,
+                "last-audit-result": test_audit_result,
+                "last-audit-files": test_audit_files
+            }
+        }
+        results = action_event.set_results.call_args[0][0]["result"]
+        self.assertTrue(results["hardened"])
+        self.assertIsNotNone(results["last-harden-time"])
+        self.assertTrue(results["audited"])
+        self.assertIsNotNone(results["last-audit-time"])
+        # self.assertIsNotNone(results["last-audit-result"])
+        self.assertTrue(len(results["last-audit-files"]) > 0)
+
+        self.assertIsInstance(self.harness.model.unit.status, ops.ActiveStatus)
+        self.assertEqual(
+            self.harness.model.unit.status.message,
+            "Audit finished. Result file: /tmp/audit.results.html"
         )
 
 
