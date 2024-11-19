@@ -8,23 +8,90 @@ This charm implements CIS (Center for Internet Security) hardening for Juju unit
 It provides capabilities to install, configure, and audit security configurations
 based on CIS benchmarks.
 
+
 ## Usage
-```
-# Using Keystone as an example
-juju deploy keystone
-juju config charm-cis-hardening pre-hardening-script=@pre-hardening-script.sh
-juju config charm-cis-hardening tailoring-file="$(base64 custom-tailoring.xml)"
-juju relate charm-cis-hardening keystone
-juju run --wait=2m charm-cis-hardening/0 -- execute-cis
-juju ssh charm-cis-hardening/0 -- sudo reboot
-juju run --wait=2m charm-cis-hardening/0 -- execute-audit
+
+#### Deploy the charm
+```bash
+# Deploy charm
+juju deploy --channel=latest/edge charm-cis-hardening cis-hardening-ubuntu
 ```
 
-Squeleton for `tailoring.xml` can be generated using `sudo usg generate-tailoring cis_level2_server tailoring.xml`. Adjust it by enabling/disabling specific rules to match the current unit you wish to harden
+#### Configure charm
+```bash
+juju config cis-hardening-ubuntu pre-hardening-script=@pre-hardening-script.sh
+juju config cis-hardening-ubuntu tailoring-file="$(base64 custom-tailoring.xml)"
+juju relate cis-hardening-ubuntu ubuntu # Or any other machine charm
+```
+
+This assumes machine unit has already a Ubuntu Pro token attached. Either through cloud-init or through `ubuntu-advantage` subordinate charm.
+
+
+Subordinate charm should not be in active/idle status waiting for hardening
+```bash
+cis-hardening-ubuntu/0*  active   idle   Ready for CIS hardening. Run 'harden' action
+```
+
+#### Execute usg
+```bash
+juju run cis-hardening-ubuntu/0 -- harden
+```
+
+The status should not be blocked, waiting for human action.
+
+```bash
+cis-hardening-ubuntu/0*  blocked   idle   Hardening complete. Please reboot the unit
+```
+
+#### Reboot the unit
+```bash
+juju ssh cis-hardening-ubuntu/0 -- sudo reboot
+```
+
+After reboot, the status should be active/idle
+
+```bash
+cis-hardening-ubuntu/0*  active   idle   Unit is hardened. Use 'audit' action to check compliance
+```
+
+#### Audit the unit post-hardening
+```bash
+juju run cis-hardening-ubuntu/0 -- audit
+```
+
+Once finished, the status of the unit should be active/idle with the following message:
+```bash
+charm-cis-hardening/0* active   idle   Audit finished. Result file: /tmp/audit.results.html
+```
+
+#### (Optional) Fetch the results
+```bash
+juju run charm-cis-hardening/0 -- get-results format=html | base64 -d > usg-result.html
+juju run charm-cis-hardening/0 -- get-results format=xml | base64 -d > usg-result.xml
+```
+
+#### (Optional) Fetch the status
+The `get-status` action returns information about whether the unit is hardened/audit and when happened the latest actions.
+It also returns the hardening percentage/score
+
+
+```bash
+juju run cis-hardening-ubuntu/0 -- get-status | yq .
+result:
+  audited: "True"
+  hardened: "True"
+  last-audit-files: ops.framework.StoredList(['/tmp/audit.results.xml', '/tmp/audit.results.html'])
+  last-audit-result: 85.522530%
+  last-audit-time: 2024-11-17T11:51:12.176138
+  last-harden-time: 2024-11-17T11:47:34.967484
+```
+
 
 ## Dependencies
 
 This charm needs all units to be registered with a valid Ubuntu Pro token.
+
+Squeleton for `tailoring.xml` can be generated using `sudo usg generate-tailoring cis_level2_server tailoring.xml`. Adjust it by enabling/disabling specific rules to match the current unit you wish to harden
 
 You can use the following subordinate [ubuntu-advantage](https://charmhub.io/ubuntu-advantage). Ensure `usg` is enabled in the `services` config.
 
