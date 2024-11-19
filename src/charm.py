@@ -52,6 +52,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
         framework.observe(self.on.audit_action, self._on_audit_action)
         framework.observe(self.on.harden_action, self._on_hardening_action)
         framework.observe(self.on.get_status_action, self._on_get_status_action)
+        framework.observe(self.on.get_results_action, self._on_get_results_action)
 
     def install_usg(self):
         try:
@@ -266,7 +267,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Hardening failed. Check juju debug-log")
 
     def _on_get_status_action(self, event):
-        self.unit.status = ops.MaintenanceStatus("Fetching results...")
+        self.unit.status = ops.MaintenanceStatus("Fetching status...")
 
         try:
             output = {
@@ -286,6 +287,61 @@ class CharmCisHardeningCharm(ops.CharmBase):
             logger.error(f"Get status action failed: {str(e)}")
             event.fail("Get status failed. Check juju debug-log")
             self.unit.status = ops.BlockedStatus("Get status failed. Check juju debug-log")
+
+    def _on_get_results_action(self, event):
+        self.unit.status = ops.MaintenanceStatus("Fetching results...")
+
+        if not self._stored.audit_status:
+            msg = "No result found. Unit hardened but not audited. Run audit action first"
+            logger.error(msg)
+            event.fail(msg)
+            return
+        elif len(self._stored.last_audit_files) == 0:
+            msg = "No result found. Unit hardened aud audited but audit files cannot be found. As result files are stored on /tmp, ensure the unit was not rebooted. Otherwise re-run audit action"
+            logger.error(msg)
+            event.fail(msg)
+
+        try:
+            format_param = event.params.get("format", "").lower()
+            if format_param not in ["xml", "html"]:
+                msg = "Invalid format parameter. Must be 'xml' or 'html'"
+                logger.error(msg)
+                event.fail(msg)
+                return
+
+            # Determine which file to read based on format
+            file_path = AUDIT_XML_RESULTS_PATH if format_param == "xml" else AUDIT_HTML_RESULTS_PATH
+
+            # # Check if file exists
+            if not (file_path in self._stored.last_audit_files):
+                msg = f"No {format_param} result file found in local storage"
+                logger.error(msg)
+                event.fail(msg)
+                return
+
+            # Read and return file content
+            try:
+                with open(file_path, 'r') as file:
+                    content = file.read()
+                    content_bytes = content.encode('utf-8')
+                    encoded_content = base64.b64encode(content_bytes).decode('utf-8')
+                    # Using print instead of event because output file is too large for the action buffer to handle
+                    print(encoded_content)
+                    # event.set_results({
+                    #     "result": encoded_content
+                    # })
+                self.check_state()
+            except IOError as e:
+                msg = f"Failed to read {format_param} result file {file_path}: {str(e)}"
+                logger.error(msg)
+                event.fail(msg)
+                self.unit.status = ops.BlockedStatus("Get results failed. Check juju debug-log")
+                return
+
+        except Exception as e:
+            logger.error(f"Get results failed: {str(e)}")
+            event.fail("Get results failed. Check juju debug-log")
+            self.unit.status = ops.BlockedStatus("Get results failed. Check juju debug-log")
 
 
 if __name__ == "__main__":

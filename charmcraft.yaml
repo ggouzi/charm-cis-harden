@@ -66,3 +66,11 @@ actions:
     description: Run audit with the tailoring file
   get-status:
     description: Get the latest status on the audit/hardening of the unit
+  get-results:
+    description: Get the audit result file content (XML or HTML)
+    params:
+      format:
+        type: string
+        default: html
+        description: |
+          format of the result file (xml or html)
