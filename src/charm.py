@@ -17,6 +17,7 @@ import ops
 from xml.dom import minidom
 import charmhelpers.fetch as fetch
 from datetime import datetime
+import hashlib
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -107,6 +108,28 @@ class CharmCisHardeningCharm(ops.CharmBase):
             # Clean up to prevent memory leaks
             if 'doc' in locals():
                 doc.unlink()
+
+    def calculate_tailoring_file_hash(self, content: str) -> str:
+        """Calculate SHA256 hash of the tailoring file content."""
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+    def has_tailoring_file_changed(self) -> bool:
+        """Check if the tailoring file has changed since last hardening."""
+        try:
+            current_content = base64.b64decode(
+                self.model.config["tailoring-file"]
+            ).decode("utf-8")
+            current_hash = self.calculate_tailoring_file_hash(current_content)
+
+            # If no previous hash exists, consider it as changed
+            if not self._stored.last_tailoring_file_hash:
+                return True
+
+            return current_hash != self._stored.last_tailoring_file_hash
+        except Exception as e:
+            logger.error(f"Error checking tailoring file changes: {str(e)}")
+            # In case of any error, assume the file has changed to be safe
+            return True
 
     def _on_install(self, event):
         try:
@@ -231,6 +254,16 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
             return
 
+        # Check if the unit is already hardened
+        if self._stored.hardening_status:
+            # Check if tailoring file has changed
+            if not self.has_tailoring_file_changed():
+                msg = "Unit is already hardened and audited with the same tailoring file. No changes will be made."
+                logger.info(msg)
+                event.fail(msg)
+                self.check_state()
+                return
+
         return_code = self.execute_pre_hardening_script()
         if return_code:
             event.fail("Failed to run pre-hardening script. Check juju debug-log")
@@ -249,6 +282,13 @@ class CharmCisHardeningCharm(ops.CharmBase):
             with tempfile.NamedTemporaryFile(mode="w", delete=False) as fh:
                 fh.write(output)
                 filename = fh.name
+
+            # Store the hash of the current tailoring file
+            current_content = base64.b64decode(
+                self.model.config["tailoring-file"]
+            ).decode("utf-8")
+            self._stored.last_tailoring_file_hash = self.calculate_tailoring_file_hash(current_content)
+
             event.set_results({
                 "result": "Complete! Please reboot the unit",
                 "file": filename
