@@ -9,15 +9,16 @@ It provides capabilities to install, configure, and audit security configuration
 based on CIS benchmarks.
 """
 
-import logging
-import tempfile
 import base64
-import subprocess
-import ops
-from xml.dom import minidom
-import charmhelpers.fetch as fetch
-from datetime import datetime
 import hashlib
+import logging
+import subprocess
+import tempfile
+from datetime import datetime
+from xml.dom import minidom
+
+import charmhelpers.fetch as fetch
+import ops
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             last_hardening_timestamp=None,
             last_audit_timestamp=None,
             last_audit_files=[],
-            last_audit_result=None
+            last_audit_result=None,
         )
 
         # Hooks
@@ -73,30 +74,35 @@ class CharmCisHardeningCharm(ops.CharmBase):
     def check_state(self):
         if self._stored.hardening_status:
             if self._stored.audit_status:
-                self.unit.status = ops.ActiveStatus(f"Audit finished. Result file: {AUDIT_HTML_RESULTS_PATH}")
+                self.unit.status = ops.ActiveStatus(
+                    f"Audit finished. Result file: {AUDIT_HTML_RESULTS_PATH}"
+                )
             else:
-                self.unit.status = ops.ActiveStatus("Unit is hardened. Use 'audit' action to check compliance")
+                self.unit.status = ops.ActiveStatus(
+                    "Unit is hardened. Use 'audit' action to check compliance"
+                )
             return
         if not self.is_configuration_set("tailoring-file"):
             logger.error("Tailoring-file is not set")
-            self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
+            self.unit.status = ops.BlockedStatus(
+                "Cannot run hardening. Please configure a tailoring-file"
+            )
         else:
             self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'harden' action")
 
     def parse_audit_results(self, filename):
-        """
-        Parses XML result file to get the percentage of passed rules
+        """Parses XML result file to get the percentage of passed rules
         Returns only the value of the score tag
         This is a nice-to-have and should not block the action.
         Thus Returns None if any error is raised. Clean memory to avoid leaks
         """
         try:
-            with open(filename, 'r') as file:
+            with open(filename, "r") as file:
                 xml_content = file.read()
 
             # Parse the XML content to get the total score of the audit (e.g 99%)
             doc = minidom.parseString(xml_content)
-            score_elements = doc.getElementsByTagName('score')
+            score_elements = doc.getElementsByTagName("score")
 
             if score_elements:
                 return score_elements[0].firstChild.nodeValue
@@ -106,19 +112,17 @@ class CharmCisHardeningCharm(ops.CharmBase):
             return None
         finally:
             # Clean up to prevent memory leaks
-            if 'doc' in locals():
+            if "doc" in locals():
                 doc.unlink()
 
     def calculate_tailoring_file_hash(self, content: str) -> str:
         """Calculate SHA256 hash of the tailoring file content."""
-        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def has_tailoring_file_changed(self) -> bool:
         """Check if the tailoring file has changed since last hardening."""
         try:
-            current_content = base64.b64decode(
-                self.model.config["tailoring-file"]
-            ).decode("utf-8")
+            current_content = base64.b64decode(self.model.config["tailoring-file"]).decode("utf-8")
             current_hash = self.calculate_tailoring_file_hash(current_content)
 
             # If no previous hash exists, consider it as changed
@@ -138,7 +142,9 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'harden' action")
 
             if self.model.config["auto-harden"]:
-                self.unit.status = ops.MaintenanceStatus("Auto-hardening enabled, starting hardening...")
+                self.unit.status = ops.MaintenanceStatus(
+                    "Auto-hardening enabled, starting hardening..."
+                )
                 self.cis_harden()
         except Exception as e:
             logger.error(f"Installation failed: {str(e)}")
@@ -146,9 +152,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
     def _on_start(self, event):
         # Workaround needed to make sure all sysctl settings are correctly loaded
-        subprocess.check_output(
-            "sysctl --system".split(" ")
-        ).decode("utf-8")
+        subprocess.check_output("sysctl --system".split(" ")).decode("utf-8")
         self.check_state()
 
     def _on_config_changed(self, event):
@@ -158,16 +162,20 @@ class CharmCisHardeningCharm(ops.CharmBase):
         if not self.is_configuration_set("tailoring-file"):
             logger.error("Tailoring-file is not set")
             event.fail("Tailoring-file is not set")
-            self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
+            self.unit.status = ops.BlockedStatus(
+                "Cannot run hardening. Please configure a tailoring-file"
+            )
             return
 
         self._stored.audit_status = False
         try:
             self.unit.status = ops.MaintenanceStatus("Executing audit...")
-            output = self.audit(xml_results_file=AUDIT_XML_RESULTS_PATH, html_results_file=AUDIT_HTML_RESULTS_PATH)
+            output = self.audit(
+                xml_results_file=AUDIT_XML_RESULTS_PATH, html_results_file=AUDIT_HTML_RESULTS_PATH
+            )
             logger.debug(output)
             results = {
-                'result': "Audit completed",
+                "result": "Audit completed",
                 "xml-file": AUDIT_XML_RESULTS_PATH,
                 "html-file": AUDIT_HTML_RESULTS_PATH,
             }
@@ -181,7 +189,9 @@ class CharmCisHardeningCharm(ops.CharmBase):
             self._stored.last_audit_result = last_audit_result
 
             logger.debug(f"Audit finished. Results {results}")
-            self.unit.status = ops.ActiveStatus(f"Audit finished. Result file: {AUDIT_HTML_RESULTS_PATH}")
+            self.unit.status = ops.ActiveStatus(
+                f"Audit finished. Result file: {AUDIT_HTML_RESULTS_PATH}"
+            )
         except Exception as e:
             self.unit.status = ops.BlockedStatus("Audit failed. Check juju-debug-log")
             logger.error(f"Audit failed: {str(e)}")
@@ -189,20 +199,28 @@ class CharmCisHardeningCharm(ops.CharmBase):
     def audit(self, html_results_file, xml_results_file):
         try:
             with tempfile.NamedTemporaryFile(mode="w", delete=False) as fh:
-                tailoring_content = base64.b64decode(
-                    self.model.config["tailoring-file"]
-                ).decode("utf-8")
+                tailoring_content = base64.b64decode(self.model.config["tailoring-file"]).decode(
+                    "utf-8"
+                )
                 fh.write(tailoring_content)
                 fh.flush()
-                cmd = ["usg", "audit", "--tailoring-file", fh.name, "--results-file", xml_results_file, "--html-file", html_results_file]
+                cmd = [
+                    "usg",
+                    "audit",
+                    "--tailoring-file",
+                    fh.name,
+                    "--results-file",
+                    xml_results_file,
+                    "--html-file",
+                    html_results_file,
+                ]
                 return subprocess.check_output(cmd, text=True)
         except Exception as e:
             logger.error(f"Audit failed: {str(e)}")
             raise
 
     def execute_pre_hardening_script(self):
-        """
-        Execute bash commands from pre-hardening-script config
+        """Execute bash commands from pre-hardening-script config
         Bash commands need to be run in some cases, before the hardening, in order to remediate some rules
         """
         if not self.is_configuration_set("pre-hardening-script"):
@@ -212,8 +230,12 @@ class CharmCisHardeningCharm(ops.CharmBase):
         try:
             # Using subprocess.run to be able to log stdout and stderr
             result = subprocess.run(
-                bash_content, stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                shell=True, executable="/bin/bash", text=True
+                bash_content,
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                shell=True,
+                executable="/bin/bash",
+                text=True,
             )
 
             if result.stdout:
@@ -224,14 +246,18 @@ class CharmCisHardeningCharm(ops.CharmBase):
             if result.returncode == 0:
                 logger.info("Pre-hardening script executed successfully.")
             else:
-                self.unit.status = ops.BlockedStatus(f"Pre-hardening script failed with code {result.returncode}. Check juju debug-log")
+                self.unit.status = ops.BlockedStatus(
+                    f"Pre-hardening script failed with code {result.returncode}. Check juju debug-log"
+                )
                 logger.error(f"Pre-hardening script failed with code {result.returncode}")
                 logger.error(result.stderr)
             return result.returncode
 
         except subprocess.SubprocessError as e:
             logger.error(f"An error occurred while executing the pre-hardening script: {e}")
-            self.unit.status = ops.BlockedStatus("Pre-hardening script failed due to an exception. Check juju debug-log")
+            self.unit.status = ops.BlockedStatus(
+                "Pre-hardening script failed due to an exception. Check juju debug-log"
+            )
             return 1
 
     def cis_harden(self):
@@ -251,7 +277,9 @@ class CharmCisHardeningCharm(ops.CharmBase):
         if not self.is_configuration_set("tailoring-file"):
             logger.error("Tailoring-file is not set")
             event.fail("Tailoring-file is not set")
-            self.unit.status = ops.BlockedStatus("Cannot run hardening. Please configure a tailoring-file")
+            self.unit.status = ops.BlockedStatus(
+                "Cannot run hardening. Please configure a tailoring-file"
+            )
             return
 
         # Check if the unit is already hardened
@@ -277,25 +305,22 @@ class CharmCisHardeningCharm(ops.CharmBase):
             output = self.cis_harden()
             if output:
                 event.fail("Failed to run CIS hardening. Check juju-debug-log")
-                self.unit.status = ops.BlockedStatus("Failed to run CIS hardening. Check juju-debug-log")
+                self.unit.status = ops.BlockedStatus(
+                    "Failed to run CIS hardening. Check juju-debug-log"
+                )
             filename = None
             with tempfile.NamedTemporaryFile(mode="w", delete=False) as fh:
                 fh.write(output)
                 filename = fh.name
 
             # Store the hash of the current tailoring file
-            current_content = base64.b64decode(
-                self.model.config["tailoring-file"]
-            ).decode("utf-8")
-            self._stored.last_tailoring_file_hash = self.calculate_tailoring_file_hash(current_content)
-
-            event.set_results({
-                "result": "Complete! Please reboot the unit",
-                "file": filename
-            })
-            self.unit.status = ops.BlockedStatus(
-                "Hardening complete. Please reboot the unit"
+            current_content = base64.b64decode(self.model.config["tailoring-file"]).decode("utf-8")
+            self._stored.last_tailoring_file_hash = self.calculate_tailoring_file_hash(
+                current_content
             )
+
+            event.set_results({"result": "Complete! Please reboot the unit", "file": filename})
+            self.unit.status = ops.BlockedStatus("Hardening complete. Please reboot the unit")
             self._stored.hardening_status = True
 
             # Update stored audit information
@@ -313,14 +338,12 @@ class CharmCisHardeningCharm(ops.CharmBase):
             output = {
                 "hardened": self._stored.hardening_status,
                 "last-harden-time": self._stored.last_hardening_timestamp,
-                'audited': self._stored.audit_status,
+                "audited": self._stored.audit_status,
                 "last-audit-time": self._stored.last_audit_timestamp,
                 "last-audit-result": self._stored.last_audit_result,
                 "last-audit-files": self._stored.last_audit_files,
             }
-            event.set_results({
-                "result": output
-            })
+            event.set_results({"result": output})
             self.check_state()
 
         except Exception as e:
@@ -350,10 +373,12 @@ class CharmCisHardeningCharm(ops.CharmBase):
                 return
 
             # Determine which file to read based on format
-            file_path = AUDIT_XML_RESULTS_PATH if format_param == "xml" else AUDIT_HTML_RESULTS_PATH
+            file_path = (
+                AUDIT_XML_RESULTS_PATH if format_param == "xml" else AUDIT_HTML_RESULTS_PATH
+            )
 
             # # Check if file exists
-            if not (file_path in self._stored.last_audit_files):
+            if file_path not in self._stored.last_audit_files:
                 msg = f"No {format_param} result file found in local storage"
                 logger.error(msg)
                 event.fail(msg)
@@ -361,10 +386,10 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
             # Read and return file content
             try:
-                with open(file_path, 'r') as file:
+                with open(file_path, "r") as file:
                     content = file.read()
-                    content_bytes = content.encode('utf-8')
-                    encoded_content = base64.b64encode(content_bytes).decode('utf-8')
+                    content_bytes = content.encode("utf-8")
+                    encoded_content = base64.b64encode(content_bytes).decode("utf-8")
                     # Using print instead of event because output file is too large for the action buffer to handle
                     print(encoded_content)
                     # event.set_results({
