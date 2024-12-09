@@ -14,6 +14,7 @@ import hashlib
 import logging
 import subprocess
 import tempfile
+import json
 from datetime import datetime
 from xml.dom import minidom
 
@@ -62,7 +63,27 @@ class CharmCisHardeningCharm(ops.CharmBase):
             fetch.apt_install([USG_PACKAGE], fatal=True)
         except Exception as e:
             logger.error(f"Failed to install {USG_PACKAGE}: {str(e)}")
-            raise
+
+    def check_ubuntu_pro_usg_enabled(self):
+        try:
+            # Run the command to get Ubuntu Pro status
+            result = subprocess.check_output(['sudo', 'pro', 'status', '--format=json'])
+            status_data = json.loads(result)
+
+            # Check if USG service is available
+            logger.debug(result)
+            for service in status_data.get('services', []):
+                if service.get('name') == 'usg' and service.get('available') == 'yes' and service.get('status') == 'enabled':
+                    logger.debug("Ubuntu Pro usg service is enabled")
+                    return True
+
+            msg = f"Ubuntu Pro {USG_PACKAGE} service is NOT enabled. Ensure a valid token is attached to the machine"
+            logger.error(msg)
+            self.unit.status = ops.BlockedStatus(msg)
+            return False
+        except Exception as e:
+            logger.error(f"Failed to check if {USG_PACKAGE} is enabled: {str(e)}")
+            return False
 
     def is_configuration_set(self, config_key):
         config = self.model.config
@@ -72,6 +93,8 @@ class CharmCisHardeningCharm(ops.CharmBase):
         return True
 
     def check_state(self):
+        if not self.check_ubuntu_pro_usg_enabled():
+            return
         if self._stored.hardening_status:
             if self._stored.audit_status:
                 self.unit.status = ops.ActiveStatus(
@@ -136,8 +159,12 @@ class CharmCisHardeningCharm(ops.CharmBase):
             return True
 
     def _on_install(self, event):
+
         try:
             self.unit.status = ops.MaintenanceStatus("Installing dependencies...")
+            pro_enabled = self.check_ubuntu_pro_usg_enabled()
+            if not pro_enabled:
+                return
             self.install_usg()
             self.unit.status = ops.ActiveStatus("Ready for CIS hardening. Run 'harden' action")
 
