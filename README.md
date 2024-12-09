@@ -11,6 +11,17 @@ based on CIS benchmarks.
 
 ## Usage
 
+### Pre-requisites
+
+- This charm needs parent unit to be registered with a valid Ubuntu Pro token and have `usg` enabled.
+
+You can use the following subordinate [ubuntu-advantage](https://charmhub.io/ubuntu-advantage). Ensure `usg` is enabled in the `services` config.
+(*usg is not yet compatible with Ubuntu 24.04. Trying to deploy this charm on Ubuntu 24.04 will fail*)
+```bash
+juju deploy --channel=latest/stable ubuntu-advantage --config token=C1SnjuFGL9eDxWgmHHuKbrY9AcxDu --config services=esm-infra,usg
+juju relate ubuntu-advantage ubuntu
+``
+
 #### Deploy the charm
 ```bash
 # Deploy charm
@@ -27,7 +38,7 @@ juju relate cis-hardening-ubuntu ubuntu # Or any other machine charm
 This assumes machine unit has already a Ubuntu Pro token attached. Either through cloud-init or through `ubuntu-advantage` subordinate charm.
 
 
-Subordinate charm should not be in active/idle status waiting for hardening
+Subordinate charm should now be in active/idle status waiting for hardening
 ```bash
 cis-hardening-ubuntu/0*  active   idle   Ready for CIS hardening. Run 'harden' action
 ```
@@ -37,7 +48,7 @@ cis-hardening-ubuntu/0*  active   idle   Ready for CIS hardening. Run 'harden' a
 juju run cis-hardening-ubuntu/0 -- harden
 ```
 
-The status should not be blocked, waiting for human action.
+The status should now be blocked, waiting for human action.
 
 ```bash
 cis-hardening-ubuntu/0*  blocked   idle   Hardening complete. Please reboot the unit
@@ -86,14 +97,7 @@ result:
   last-harden-time: 2024-11-17T11:47:34.967484
 ```
 
-
-## Dependencies
-
-This charm needs all units to be registered with a valid Ubuntu Pro token.
-
 Squeleton for `tailoring.xml` can be generated using `sudo usg generate-tailoring cis_level2_server tailoring.xml`. Adjust it by enabling/disabling specific rules to match the current unit you wish to harden
-
-You can use the following subordinate [ubuntu-advantage](https://charmhub.io/ubuntu-advantage). Ensure `usg` is enabled in the `services` config.
 
 ## Other resources
 
