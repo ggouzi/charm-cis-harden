@@ -18,7 +18,8 @@ import json
 from datetime import datetime
 from xml.dom import minidom
 
-import charmhelpers.fetch as fetch
+from charms.operator_libs_linux.v0 import apt
+
 import ops
 
 # Log messages can be retrieved using juju debug-log
@@ -59,8 +60,8 @@ class CharmCisHardeningCharm(ops.CharmBase):
 
     def install_usg(self):
         try:
-            fetch.apt_update()
-            fetch.apt_install([USG_PACKAGE], fatal=True)
+            apt.update()
+            apt.add_package(USG_PACKAGE)
         except Exception as e:
             logger.error(f"Failed to install {USG_PACKAGE}: {str(e)}")
 
@@ -73,7 +74,7 @@ class CharmCisHardeningCharm(ops.CharmBase):
             # Check if USG service is available
             logger.debug(result)
             for service in status_data.get('services', []):
-                if service.get('name') == 'usg' and service.get('available') == 'yes' and service.get('status') == 'enabled':
+                if service.get('name') == USG_PACKAGE and service.get('available') == 'yes' and service.get('status') == 'enabled':
                     logger.debug("Ubuntu Pro usg service is enabled")
                     return True
 
